@@ -4,7 +4,7 @@ import CaseCard from './components/CaseCard';
 import CoachPanel from './components/CoachPanel';
 
 // Base API URL
-const API_BASE_URL = 'http://localhost:8000';
+import { API_BASE_URL } from './config';
 
 /**
  * Main application component.
@@ -154,7 +154,7 @@ const App = () => {
             Wellness Guide
           </p>
           <p className="mt-3 text-sm text-teal-100 max-w-2xl mx-auto">
-            Find personalized guidance with our AI-powered platform. Search through thousands of real cases and get expert responses tailored to your needs.
+            Find personalized guidance with our AI-powered platform. Search through thousands of real conversations and get expert responses tailored to your needs.
           </p>
         </div>
       </header>

@@ -153,13 +153,13 @@ const CoachPanel = ({ response, isLoading, onCoach, hasSearchResults }) => {
   return (
     <div className="bg-white p-6 rounded-lg shadow-md">
       <div className="flex justify-between items-center mb-4">
-        <h2 className="text-lg font-semibold text-teal-700">Compass Response</h2>
+        <h2 className="text-lg font-semibold text-teal-700">Compass</h2>
         <button 
           onClick={onCoach}
           disabled={isLoading || !hasSearchResults}
           className="bg-teal-600 hover:bg-teal-700 text-white font-medium py-2 px-4 rounded focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-opacity-50 disabled:opacity-50"
         >
-          {isLoading ? 'Generating...' : 'Compass Advice'}
+          {isLoading ? 'Generating...' : 'Advice'}
         </button>
       </div>
       
@@ -169,7 +169,7 @@ const CoachPanel = ({ response, isLoading, onCoach, hasSearchResults }) => {
         </div>
       ) : !hasSearchResults ? (
         <div className="text-center py-8 text-gray-500">
-          <p>Search for cases to get personalized advice</p>
+          <p>Search for conversations to get personalized advice</p>
         </div>
       ) : (
         formatResponse()

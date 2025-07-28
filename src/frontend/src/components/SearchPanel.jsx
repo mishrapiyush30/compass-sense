@@ -20,7 +20,7 @@ const SearchPanel = ({ query, onQueryChange, onSearch, isLoading }) => {
   
   return (
     <div>
-      <h2 className="text-xl font-semibold mb-4 text-teal-700">Search Cases</h2>
+      <h2 className="text-xl font-semibold mb-4 text-teal-700">Search Conversations</h2>
       
       <form onSubmit={handleSubmit}>
         <div className="mb-4">

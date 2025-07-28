@@ -1,0 +1,36 @@
+services:
+  # Backend API Service
+  - type: web
+    name: compass-sense-backend
+    env: docker
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: PORT
+        value: 8000
+      - key: DATA_DIR
+        value: data
+      - key: DATASET_PATH
+        value: data/combined_dataset.json
+      - key: CASES_PATH
+        value: data/cases.json
+      - key: INDEX_DIR
+        value: data/indices
+      - key: LLM_API_KEY
+        sync: false # Set this manually in Render dashboard
+    healthCheckPath: /health
+
+  # Frontend Static Site
+  - type: static
+    name: compass-sense-frontend
+    buildCommand: cd src/frontend && npm install && npm run build
+    staticPublishPath: src/frontend/build
+    envVars:
+      - key: REACT_APP_API_BASE_URL
+        fromService:
+          type: web
+          name: compass-sense-backend
+          property: host
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html 

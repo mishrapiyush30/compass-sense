@@ -1,0 +1,69 @@
+# Use Python 3.11 slim image
+FROM python:3.11-slim
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements first for better caching
+COPY requirements.txt .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy source code and dataset only (no pre-built indices)
+COPY src/ src/
+COPY data/combined_dataset.json data/
+COPY data/cases.json data/
+COPY pyproject.toml .
+
+# Create directories for indices
+RUN mkdir -p data/indices
+
+# Create a non-root user
+RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
+USER appuser
+
+# Expose port
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=30s --start-period=120s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Startup script that builds indices if they don't exist
+COPY <<EOF /app/startup.sh
+#!/bin/bash
+if [ ! -f "data/indices/index_manifest.json" ]; then
+    echo "No indices found, building them..."
+    python -c "
+import asyncio
+import aiohttp
+import time
+
+async def build_indices():
+    # Wait for server to start
+    await asyncio.sleep(5)
+    
+    # Call index endpoint
+    async with aiohttp.ClientSession() as session:
+        async with session.post('http://localhost:8000/index', json={}) as resp:
+            print('Index building started:', await resp.text())
+
+# Start background index building
+asyncio.create_task(build_indices())
+"
+fi
+python src/main.py --host 0.0.0.0 --port 8000
+EOF
+
+RUN chmod +x /app/startup.sh
+
+# Run the startup script
+CMD ["/app/startup.sh"] 
