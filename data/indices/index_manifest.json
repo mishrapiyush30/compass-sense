@@ -1,0 +1,10 @@
+{
+  "version": "1.0.0",
+  "created_at": 1753651303.6212878,
+  "embed_model": "sentence-transformers/all-MiniLM-L6-v2",
+  "vector_dim": 384,
+  "context_count": 2467,
+  "sentence_count": 26253,
+  "case_count": 2467,
+  "checksum": 778722
+}

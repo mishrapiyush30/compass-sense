@@ -1,0 +1,1 @@
+{"type": "faiss", "dim": 384, "metric": "ip", "count": 20485, "version": "1.0.0"}
