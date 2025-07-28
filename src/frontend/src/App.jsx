@@ -68,7 +68,9 @@ const App = () => {
       }
       
       const results = await response.json();
-      setSearchResults(results);
+      // Sort results by relevance score (highest first)
+      const sortedResults = results.sort((a, b) => b.score - a.score);
+      setSearchResults(sortedResults);
       setSelectedCases([]);
       
       // Fetch updated metrics
