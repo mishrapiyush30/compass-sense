@@ -1,9 +1,20 @@
 {
-  "short_name": "CoachCritique",
-  "name": "CoachCritique - AI-powered coaching system",
-  "icons": [],
+  "short_name": "Compass",
+  "name": "Your Personal Compass - Wellness Guide",
+  "icons": [
+    {
+      "src": "android-chrome-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "android-chrome-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ],
   "start_url": ".",
   "display": "standalone",
-  "theme_color": "#000000",
+  "theme_color": "#0f766e",
   "background_color": "#ffffff"
 } 
