@@ -344,7 +344,16 @@ async def get_metrics():
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
-    return {"status": "ok", "initialized": index_manager.is_initialized()}
+    # Check if pre-built indices exist (they should always exist in production)
+    indices_exist = (
+        os.path.exists(os.path.join(config["index_dir"], "index_manifest.json")) and
+        os.path.exists(config["cases_path"])
+    )
+    
+    # Show initialized=true if indices exist OR if manager is initialized
+    is_ready = index_manager.is_initialized() or indices_exist
+    
+    return {"status": "ok", "initialized": is_ready}
 
 
 @app.get("/api/cases/{case_id}")
