@@ -1,6 +1,7 @@
 import re
 import logging
 from typing import List, Dict, Any, Optional, Set, Tuple
+from collections import defaultdict
 import nltk
 from nltk.util import ngrams
 from rouge_score import rouge_scorer
@@ -14,6 +15,15 @@ except LookupError:
     logger.info("Downloading NLTK punkt tokenizer")
     nltk.download('punkt', quiet=True)
 
+def _sentences(text: str) -> List[str]:
+    """Robust sentence splitter with NLTK fallback to regex."""
+    try:
+        from nltk.tokenize import sent_tokenize
+        sents = [s.strip() for s in sent_tokenize(text) if s.strip()]
+    except Exception:
+        sents = [s.strip() for s in re.split(r'[.!?]\s+', text) if s.strip()]
+    return sents
+
 
 class SafetyService:
     """Service for safety checks and evidence verification."""
@@ -25,7 +35,7 @@ class SafetyService:
         Args:
             config: Configuration parameters
         """
-        # Default configuration
+        # Default configuration (do not mutate during requests)
         self.config = {
             "crisis_patterns": [
                 r"suicid(e|al)",
@@ -80,7 +90,7 @@ class SafetyService:
     
     def detect_crisis(self, text: str) -> bool:
         """
-        Detect crisis language in text.
+        Legacy boolean check (kept for backward compatibility).
         
         Args:
             text: Text to check for crisis language
@@ -94,6 +104,25 @@ class SafetyService:
                 return True
         
         return False
+
+    def crisis_severity(self, text: str) -> str:
+        """
+        Determine crisis severity with simple, explainable rules.
+        Returns: 'none' | 'mild' | 'moderate' | 'high'
+        """
+        t = text.lower()
+        # Negation guard: "I'm not suicidal"
+        if re.search(r"\b(not|no|never)\b.{0,30}\b(suicid(e|al)|kill myself|end my life|want to die)\b", t):
+            return "mild"
+        direct = re.search(r"\b(suicid(e|al)|kill myself|end my life|take my (own )?life|want to die)\b", t)
+        plan   = re.search(r"\b(plan|method|means|bought (rope|pills)|set a date)\b", t)
+        timeb  = re.search(r"\b(today|tonight|right now|soon|this week)\b", t)
+        harm   = re.search(r"\b(hurt myself|harm myself|hurt (someone|others))\b", t)
+        if direct and (plan or timeb):
+            return "high"
+        if direct or harm:
+            return "moderate"
+        return "none"
     
     def filter_evidence(self, text: str) -> bool:
         """
@@ -160,6 +189,25 @@ class SafetyService:
         """
         scores = self.rouge_scorer.score(text1, text2)
         return scores['rougeL'].fmeasure
+
+    def verify_sentence(
+        self,
+        sentence: str,
+        quotes: List[str],
+        alpha: float = 0.25,
+        topk: int = 5
+    ) -> Tuple[bool, float, List[str]]:
+        """
+        Verify a single sentence against a set of quotes using ROUGE-L.
+        Returns (supported?, best_score, top_quotes_used)
+        """
+        if not quotes:
+            return False, 0.0, []
+        scored = [(self.compute_rouge_l(sentence, q), q) for q in quotes]
+        scored.sort(key=lambda x: x[0], reverse=True)
+        top = scored[:topk]
+        best = top[0][0] if top else 0.0
+        return best >= alpha, best, [q for _, q in top]
     
     def verify_evidence(self, sentence: str, quotes: List[str]) -> Tuple[bool, float]:
         """
@@ -192,48 +240,69 @@ class SafetyService:
         logger.info(f"Best matching quote: '{best_quote[:50]}...'")
         
         return is_valid, best_score
-    
-    def run_evidence_gate(self, sections: Dict[str, str], quotes: List[str]) -> Tuple[Dict[str, str], Dict[str, float], bool]:
+
+    def run_evidence_gate(
+        self,
+        sections: Dict[str, str],
+        quotes: List[str],
+        *,
+        alpha: float = 0.25,
+        min_supported_sentences: int = 2,
+        require_distinct_cases: int = 2,
+        quote_to_case: Optional[Dict[str, int]] = None
+    ) -> Tuple[Dict[str, str], Dict[str, float], bool]:
         """
-        Run evidence gate on sections.
+        Sentence-level gate with case diversity.
         
         Args:
-            sections: Dictionary of section name to section text
-            quotes: List of quote strings
+            sections: {section_name: text}
+            quotes: list of quote strings (sentences)
+            alpha: per-sentence ROUGE-L threshold
+            min_supported_sentences: min sentences per section that must be supported
+            require_distinct_cases: min distinct case_ids cited
+            quote_to_case: optional mapping quote_text -> case_id
             
         Returns:
             Tuple of (valid_sections, section_scores, gate_passed)
         """
-        valid_sections = {}
-        section_scores = {}
-        
-        # Set a very low threshold to allow more responses
-        self.config["gate_alpha"] = 0.01
-        self.config["min_valid_sections"] = 1
-        
-        logger.info(f"Running evidence gate with {len(sections)} sections and {len(quotes)} quotes")
-        logger.info(f"Sections: {list(sections.keys())}")
-        logger.info(f"Gate alpha threshold: {self.config['gate_alpha']}")
-        logger.info(f"Min valid sections: {self.config['min_valid_sections']}")
-        
-        for section_name, section_text in sections.items():
-            # Skip empty sections
-            if not section_text:
-                logger.info(f"Section '{section_name}' is empty, skipping")
+        valid_sections: Dict[str, str] = {}
+        section_scores: Dict[str, float] = {}
+        quote_to_case = quote_to_case or {}
+
+        for name, text in sections.items():
+            if not text:
                 continue
-                
-            # Verify evidence
-            is_valid, score = self.verify_evidence(section_text, quotes)
-            section_scores[section_name] = score
-            
-            logger.info(f"Section '{section_name}' score: {score}, valid: {is_valid}")
-            
-            if is_valid:
-                valid_sections[section_name] = section_text
-        
-        # Check if enough valid sections remain
-        gate_passed = len(valid_sections) >= self.config["min_valid_sections"]
-        
-        logger.info(f"Evidence gate result: {len(valid_sections)} valid sections, passed: {gate_passed}")
-        
-        return valid_sections, section_scores, gate_passed 
+            sents = _sentences(text)
+            if not sents:
+                continue
+
+            supported = 0
+            per_sent_scores: List[float] = []
+            used_cases: Set[int] = set()
+            used_quotes: List[str] = []
+
+            for s in sents:
+                ok, sc, top_qs = self.verify_sentence(s, quotes, alpha=alpha)
+                per_sent_scores.append(sc)
+                if ok:
+                    supported += 1
+                    used_quotes.extend(top_qs)
+                    for q in top_qs:
+                        cid = quote_to_case.get(q)
+                        if cid is not None:
+                            used_cases.add(cid)
+
+            per_sent_scores.sort()
+            agg = per_sent_scores[len(per_sent_scores)//2] if per_sent_scores else 0.0
+            section_scores[name] = float(agg)
+
+            if supported >= min_supported_sentences and len(used_cases) >= require_distinct_cases:
+                valid_sections[name] = text
+
+        gate_passed = len(valid_sections) > 0
+        logger.info(f"Evidence gate: passed={gate_passed}, scores={section_scores}")
+        return valid_sections, section_scores, gate_passed
+
+    def contains_denied_terms(self, text: str) -> bool:
+        """Scan final generated text for deny-listed terms."""
+        return any(p.search(text) for p in self.evidence_denylist) 

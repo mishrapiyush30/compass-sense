@@ -165,12 +165,9 @@ class CoachService:
             logger.info("==================== LLM SYNTHESIS CALL FAILED (REQUEST ERROR) ====================")
             return None
     
-    def _light_verify(self, synthesis: SynthesisOutput) -> Tuple[bool, str]:
+    def _light_verify(self, synthesis: SynthesisOutput, cases: List[Dict[str, Any]]) -> Tuple[bool, str]:
         """
-        Minimal safety/grounding checks:
-        - At least 2 citations.
-        - Each citation points to an existing sentence.
-        - Optional: Light n-gram overlap check between cited sentences and the answer.
+        Enhanced verification using sentence-level evidence gate with case diversity.
         """
         logger.info("Running light verification on synthesis output")
         logger.info(f"Raw answer with citations: {synthesis.answer_markdown}")
@@ -206,44 +203,51 @@ class CoachService:
         # Replace the original citations with fixed ones
         synthesis.citations = fixed_citations
         
-        # Optional: Light n-gram overlap check
-        try:
-            # Simple tokenization function
-            def tokenize(text):
-                # Convert to lowercase, remove punctuation, split on whitespace
-                import re
-                return re.sub(r'[^\w\s]', '', text.lower()).split()
-            
-            # Extract n-grams from text
-            def get_ngrams(tokens, n):
-                return [tuple(tokens[i:i+n]) for i in range(len(tokens)-n+1)]
-            
-            # Check if there's reasonable overlap between answer and cited sentences
-            answer_tokens = tokenize(synthesis.answer_markdown)
-            
-            # For each citation, check if there's some n-gram overlap with the answer
-            for ref in synthesis.citations:
-                case = next((c for c in self.cases if c.id == ref.case_id), None)
-                if case and 0 <= ref.sent_id < len(case.response_sentences):
-                    cited_text = case.response_sentences[ref.sent_id].text
-                    cited_tokens = tokenize(cited_text)
-                    
-                    # Get bigrams from both texts
-                    answer_bigrams = set(get_ngrams(answer_tokens, 2))
-                    cited_bigrams = set(get_ngrams(cited_tokens, 2))
-                    
-                    # Calculate overlap
-                    if len(cited_bigrams) > 0:
-                        overlap = len(answer_bigrams.intersection(cited_bigrams)) / len(cited_bigrams)
-                        logger.info(f"Citation overlap for case {ref.case_id}, sent {ref.sent_id}: {overlap:.2f}")
-                        
-                        # If overlap is too low, log a warning but don't fail verification
-                        # This is a soft check that could be made stricter in the future
-                        if overlap < 0.1:  # Very minimal threshold
-                            logger.warning(f"Low citation overlap ({overlap:.2f}) for case {ref.case_id}, sent {ref.sent_id}")
-        except Exception as e:
-            # Don't fail verification if the overlap check itself fails
-            logger.error(f"Error in overlap check: {e}")
+        # Build quote set from all available case responses (not just citations)
+        all_quotes: List[str] = []
+        quote_to_case: Dict[str, int] = {}
+        
+        # Extract all sentences from the provided cases
+        for case_dict in cases:
+            case_id = case_dict.get("case_id")
+            response = case_dict.get("response", "")
+            if case_id and response:
+                # Find the corresponding case object to get sentence boundaries
+                case_obj = next((c for c in self.cases if c.id == case_id), None)
+                if case_obj and case_obj.response_sentences:
+                    for sent in case_obj.response_sentences:
+                        all_quotes.append(sent.text)
+                        quote_to_case[sent.text] = case_id
+                else:
+                    # Fallback: split response into sentences if no sentence objects
+                    import re
+                    sentences = [s.strip() for s in re.split(r'[.!?]\s+', response) if s.strip()]
+                    for sent in sentences:
+                        all_quotes.append(sent)
+                        quote_to_case[sent] = case_id
+
+        logger.info(f"Built evidence base with {len(all_quotes)} quotes from {len(cases)} cases")
+
+        # Sections to validate (just the main answer)
+        sections = {"answer": synthesis.answer_markdown}
+
+        valid_sections, section_scores, gate_passed = self.safety_service.run_evidence_gate(
+            sections,
+            all_quotes,
+            alpha=0.15,  # Lower threshold for testing
+            min_supported_sentences=1,  # Require at least 1 supported sentence
+            require_distinct_cases=1,  # Require at least 1 case
+            quote_to_case=quote_to_case
+        )
+        
+        if not gate_passed:
+            logger.warning("Evidence gate failed")
+            return False, "Insufficient evidence support"
+
+        # Optional: policy guard on final answer
+        if self.safety_service.contains_denied_terms(synthesis.answer_markdown):
+            logger.warning("Policy violation in generated text")
+            return False, "Policy violation detected"
 
         logger.info("Verification passed")
         return True, ""
@@ -262,9 +266,10 @@ class CoachService:
         start_time = time.time()
         logger.info(f"Generating coaching response for query: '{query}'")
         
-        # 1) Crisis front gate
-        if self.safety_service.detect_crisis(query):
-            logger.warning("Crisis language detected in query")
+        # Crisis severity triage
+        severity = self.safety_service.crisis_severity(query)
+        if severity == "high":
+            logger.warning("High-severity crisis detected")
             return CoachResponse(
                 refused=True,
                 refusal_reason="Crisis language detected. This system is not equipped to handle crisis situations. Please seek appropriate support.",
@@ -286,7 +291,7 @@ class CoachService:
         
         # 3) Light verification
         logger.info("Running light verification")
-        ok, reason = self._light_verify(synthesis)
+        ok, reason = self._light_verify(synthesis, cases)
         if not ok:
             logger.warning(f"Light verification failed: {reason}")
             return CoachResponse(

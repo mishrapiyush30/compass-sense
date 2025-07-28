@@ -284,8 +284,18 @@ async def coach(
                 "highlights": [h.dict() for h in c.highlights]  # Will be empty list by default
             } for c in search_results]
         
-        # Generate coaching response
-        response = await coach_service.coach(request.query, cases)
+        # Generate coaching response with timeout
+        response = await asyncio.wait_for(
+            coach_service.coach(request.query, cases),
+            timeout=config["coach_timeout"]
+        )
+        
+        # Update gate metrics
+        metrics["coach_requests"] += 1
+        if getattr(response, "refused", False):
+            metrics["gate_failed"] += 1
+        else:
+            metrics["gate_passed"] += 1
         
         return response.dict()
     except Exception as e:
