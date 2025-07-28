@@ -17,6 +17,13 @@ except LookupError:
     logger.info("Downloading NLTK punkt tokenizer")
     nltk.download('punkt', quiet=True)
 
+# Also download punkt_tab for newer NLTK versions
+try:
+    nltk.data.find('tokenizers/punkt_tab')
+except LookupError:
+    logger.info("Downloading NLTK punkt_tab tokenizer")
+    nltk.download('punkt_tab', quiet=True)
+
 
 def normalize_text(text: str) -> str:
     """Normalize whitespace but preserve punctuation and casing."""

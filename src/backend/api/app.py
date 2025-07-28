@@ -75,16 +75,7 @@ index_manager = IndexManager({
     "cases_path": config["cases_path"],
 })
 
-# Auto-initialize indices on startup if they exist
-try:
-    logger.info("Auto-initializing indices on startup...")
-    embedding_service = EmbeddingService(config["embed_model"])
-    if index_manager.load_indices(embedding_service):
-        logger.info("✅ Successfully auto-initialized indices on startup")
-    else:
-        logger.warning("⚠️ Could not auto-initialize indices - will initialize on first request")
-except Exception as e:
-    logger.warning(f"⚠️ Auto-initialization failed: {e} - will initialize on first request")
+
 
 # Dependency to get services
 async def get_services():

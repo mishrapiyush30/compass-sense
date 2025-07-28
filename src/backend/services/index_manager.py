@@ -254,7 +254,7 @@ class IndexManager:
                 
                 # Check if the file exists with .index extension
                 if os.path.exists(f"{context_index_path}.index"):
-                    self.context_index.load(context_index_path)
+                    self.context_index.load(f"{context_index_path}.index")
                 elif os.path.exists(context_index_path):
                     self.context_index.load(context_index_path)
                 else:
@@ -267,7 +267,7 @@ class IndexManager:
                 
                 # Check if the file exists with .index extension
                 if os.path.exists(f"{response_index_path}.index"):
-                    self.response_index.load(response_index_path)
+                    self.response_index.load(f"{response_index_path}.index")
                 elif os.path.exists(response_index_path):
                     self.response_index.load(response_index_path)
                 else:
