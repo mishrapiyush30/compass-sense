@@ -60,4 +60,4 @@ Thumbs.db
 # data/
 *.parquet
 *.faiss
-*.index
+# *.index  # Commented out to include FAISS index files
